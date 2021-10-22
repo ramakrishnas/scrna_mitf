@@ -1,0 +1,227 @@
+---
+title: "mitf_scRNA"
+author: "rama-sompallae@uiowa.edu"
+date: "9/21/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## scRNA analysis
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r mitfGFP-Data}
+library(Matrix)
+library(Seurat)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+
+## Data location
+## smb://lc-rs-storage20.hpc.uiowa.edu/lss_cornellr/Colin_MITF_SingleCell
+
+nacerGFP_dir = "/Volumes/Colin_MITF_SingleCell/CellRanger/NacerGFP_count/outs/filtered_feature_bc_matrix/"
+
+#list.files(nacerGFP_dir)
+nacergfp.dat <- Read10X(data.dir = nacerGFP_dir)
+
+mitfGFP_dir = "/Volumes/Colin_MITF_SingleCell/CellRanger/WTmitfGFP_count/outs/filtered_feature_bc_matrix/"
+
+mitfgfp.dat <- Read10X(data.dir = mitfGFP_dir)
+
+
+## WT mitf data and QC
+
+mitf.gfp <- CreateSeuratObject(counts = mitfgfp.dat, project = "WTmitf")
+
+mitf.gfp[["percent.mt"]] <- PercentageFeatureSet(mitf.gfp, pattern = "^mt-")
+
+VlnPlot(mitf.gfp, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+mitf.mt <- FeatureScatter(mitf.gfp, feature1 = "nCount_RNA", feature2 = "percent.mt")
+mitf.rna <- FeatureScatter(mitf.gfp, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+mitf.rna
+mitf.mt
+
+## Filter out cells that have unique feature counts less than 200 or over 4000 and less than 20% for mitochondi genes
+
+mitf.filt <- subset(mitf.gfp, subset = nFeature_RNA > 200 & nFeature_RNA < 4000 & percent.mt < 20)
+
+# Normalize
+
+mitf.norm <- NormalizeData(mitf.filt) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+
+# find clusters
+mitf.norm <- FindNeighbors(mitf.norm, dims = 1:10)
+mitf.norm <- FindClusters(mitf.norm, resolution = 1)
+
+#tSNE
+mitf.norm <- RunUMAP(mitf.norm, dims = 1:10)
+
+DimPlot(mitf.norm, reduction = "umap")
+
+VlnPlot(mitf.norm, features = c("mitfa", "mitfb"), slot = "counts", log = TRUE)
+
+FeaturePlot(mitf.norm, features = c("mitfa", "mitfb"))
+
+#nacer
+
+nacer.gfp <- CreateSeuratObject(counts = nacergfp.dat, project = "nacer")
+
+# data QC
+
+nacer.gfp[["percent.mt"]] <- PercentageFeatureSet(nacer.gfp, pattern = "^mt-")
+
+VlnPlot(nacer.gfp, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+nacer.mt <- FeatureScatter(nacer.gfp, feature1 = "nCount_RNA", feature2 = "percent.mt")
+nacer.rna <- FeatureScatter(nacer.gfp, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+nacer.rna
+nacer.mt
+
+## Filtering
+
+## Filter out cells that have unique feature counts less than 200 or over 4000 and less than 20% for mitochondi genes
+
+nacer.filt <- subset(nacer.gfp, subset = nFeature_RNA > 200 & nFeature_RNA < 4000 & percent.mt < 20)
+
+# Normalize
+
+nacer.norm <- NormalizeData(nacer.filt) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+
+# find clusters
+nacer.norm <- FindNeighbors(nacer.norm, dims = 1:10)
+nacer.norm <- FindClusters(nacer.norm, resolution = 1)
+
+#tSNE
+nacer.norm <- RunUMAP(nacer.norm, dims = 1:10)
+
+DimPlot(nacer.norm, reduction = "umap")
+
+VlnPlot(nacer.norm, features = c("mitfa", "mitfb"), slot = "counts", log = TRUE)
+
+FeaturePlot(nacer.norm, features = c("mitfa", "mitfb"))
+
+# data QC
+```
+
+```{r mitf-nacer merged}
+mergedata <- merge(mitf.gfp, nacer.gfp, add.cell.ids=c("WTmitf","nacer"))
+
+VlnPlot(mergedata, features = c("nFeature_RNA", "nCount_RNA"))
+
+VlnPlot(mergedata, features = "percent.mt")
+
+merge.mt <- FeatureScatter(mergedata, feature1 = "nCount_RNA", feature2 = "percent.mt")
+merge.rna <- FeatureScatter(mergedata, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+merge.rna
+merge.mt
+
+## Filter out cells that have unique feature counts less than 200 or over 4000 and less than 20% for mitochondi genes
+
+merge.filt <- subset(mergedata, subset = nFeature_RNA > 200 & nFeature_RNA < 4000 & percent.mt < 20)
+
+VlnPlot(merge.filt, features = c("nFeature_RNA", "nCount_RNA"))
+VlnPlot(merge.filt, features = "percent.mt")
+
+table(Idents(mergedata))
+
+table(Idents(merge.filt))
+
+
+# Normalize
+
+
+merge.norm <- NormalizeData(merge.filt) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+
+# find clusters
+merge.norm <- FindNeighbors(merge.norm, dims = 1:20)
+merge.norm <- FindClusters(merge.norm, resolution = 0.5)
+
+#tSNE
+merge.norm <- RunUMAP(merge.norm, dims = 1:20)
+
+D1 <- DimPlot(merge.norm, reduction = "umap", group.by="orig.ident", label = TRUE)
+D2 <- DimPlot(merge.norm, reduction = "umap", group.by="seurat_clusters", label = TRUE, label.box = TRUE)
+
+D1
+D2
+
+#D1+D2 
+
+# Extract identity and sample information from seurat object to determine the number of cells per cluster per sample
+ncells <- FetchData(merge.norm, 
+                     vars = c("ident", "orig.ident")) %>%
+        group_by(orig.ident) %>%
+        dplyr::count(ident) %>% 
+        spread(ident, n) 
+
+# View table
+#View(ncells)
+
+ncells_d = tidyr::pivot_longer(ncells, -1, values_to="num_of_cells", names_to="cluster")
+
+ncells
+
+ggplot(ncells_d, aes(x=cluster, y=num_of_cells, fill = orig.ident)) + 
+       geom_col(position = "fill")
+
+
+VlnPlot(merge.norm, features = c("mitfa", "mitfb"), slot = "counts", log = TRUE)
+
+FeaturePlot(merge.norm, features = c("mitfa", "mitfb"))
+
+#cluster6_markers <- FindMarkers(merge.norm, ident.1 = "nacer",  group.by="orig.ident", subset.ident = "6")
+
+FeaturePlot(merge.norm, features = c("ins", "sst2"))
+
+
+
+```
+
+#Calculate cell-cycle scores
+#Seurat has a function for calculating cell cycle scores based on a list of know S-phase and G2/M-phase genes but works with only human genes.
+
+#merge.filt <- CellCycleScoring(
+#  object = merge.filt,
+#  g2m.features = cc.genes$g2m.genes,
+#  s.features = cc.genes$s.genes
+#)
+
+#VlnPlot(data.filt, features = c("S.Score","G2M.Score"))
+
+
+```{r pclusterDEGs, echo=FALSE}
+#sce <- as.SingleCellExperiment(merge.filt)
+#differentially expressed genes
+
+for(i in seq_along(levels(merge.norm@meta.data$seurat_clusters))) {
+  clust = levels(merge.norm@meta.data$seurat_clusters)[i]
+  nam <- paste("cluster", clust, "_markers", sep = "")
+  print (nam)
+  assign(nam, FindMarkers(merge.norm, ident.1 = "nacer",  group.by="orig.ident", subset.ident = clust))
+  nam <- data.frame(Gene = row.names(df), df)
+  print(paste("~/Work/other_projects/Cornell_lab/sc_rna/cluster", clust,"_markers.tsv", sep=""))
+  write.table(nam, paste("~/Work/other_projects/Cornell_lab/sc_rna/cluster", clust,"_markers.tsv", sep=""), sep = "\t", row.names = FALSE)
+}
+
+
+```
+
+```{r hmaps}
+DoHeatmap(subset(merge.norm, idents = 1), row.names(cluster1_markers)[1:10], group.by = "orig.ident")
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
